@@ -1,0 +1,36 @@
+#
+# Consumer sidecar: two virtual clusters exposing source and dest Kafka clusters.
+#   source-cluster: consumer-proxy:9292 -> kafka-source:9092
+#   dest-cluster:   consumer-proxy:9294 -> kafka-dest:9092
+#
+---
+useIoUring: false
+virtualClusters:
+  - name: source-cluster
+    targetCluster:
+      bootstrapServers: kafka-source:9092
+    gateways:
+      - name: default
+        portIdentifiesNode:
+          bootstrapAddress: consumer-proxy:9292
+          nodeIdRanges:
+            - name: "default"
+              start: 1
+              end: 1
+    logNetwork: false
+    logFrames: false
+  - name: dest-cluster
+    targetCluster:
+      bootstrapServers: kafka-dest:9092
+    gateways:
+      - name: default
+        portIdentifiesNode:
+          bootstrapAddress: consumer-proxy:9294
+          nodeIdRanges:
+            - name: "default"
+              start: 1
+              end: 1
+    logNetwork: false
+    logFrames: false
+filterDefinitions:
+defaultFilters:

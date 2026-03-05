@@ -1,0 +1,142 @@
+#
+# Migration demo: all-in-Docker.
+#
+# Services:
+#   kafka-source       Source Kafka cluster (KRaft, single node)
+#   kafka-dest         Destination Kafka cluster (KRaft, single node)
+#   producer-proxy     Kroxylicious sidecar for the producer
+#   consumer-proxy     Kroxylicious sidecar for the consumer
+#   init-topics        One-shot: creates the 'orders' topic on both clusters
+#   producer           Produces 1 msg/sec through producer-proxy
+#   consumer           Consumes from orders through consumer-proxy
+#
+
+services:
+
+  # ---------- Kafka clusters ----------
+
+  kafka-source:
+    image: docker.io/apache/kafka:4.1.1
+    container_name: kafka-source
+    environment:
+      KAFKA_ENABLE_KRAFT: "yes"
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-source:9094
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-source:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_KRAFT_CLUSTER_ID: Qh9gAAIfRl6r7xTQxVBdRA
+      KAFKA_NODE_ID: 1
+    healthcheck:
+      test: /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list > /dev/null 2>&1
+      interval: 5s
+      timeout: 10s
+      retries: 15
+
+  kafka-dest:
+    image: docker.io/apache/kafka:4.1.1
+    container_name: kafka-dest
+    environment:
+      KAFKA_ENABLE_KRAFT: "yes"
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-dest:9094
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-dest:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_KRAFT_CLUSTER_ID: XkosmjQFQAqegYUNJG4WjQ
+      KAFKA_NODE_ID: 1
+    healthcheck:
+      test: /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list > /dev/null 2>&1
+      interval: 5s
+      timeout: 10s
+      retries: 15
+
+  # ---------- Topic initialisation ----------
+
+  init-topics:
+    image: docker.io/apache/kafka:4.1.1
+    container_name: init-topics
+    depends_on:
+      kafka-source: { condition: service_healthy }
+      kafka-dest:   { condition: service_healthy }
+    restart: "no"
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka-source:9092 \
+          --create --if-not-exists --topic orders --partitions 1 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka-dest:9092 \
+          --create --if-not-exists --topic orders --partitions 1 --replication-factor 1
+        echo "Topics created on both clusters."
+
+  # ---------- Kroxylicious sidecars ----------
+
+  producer-proxy:
+    image: eclipse-temurin:21-jre
+    container_name: producer-proxy
+    depends_on:
+      kafka-source: { condition: service_healthy }
+      kafka-dest:   { condition: service_healthy }
+    volumes:
+      - ./lib/kroxylicious-app.jar:/opt/proxy.jar:ro
+      - ./producer-proxy-config.yaml:/opt/config.yaml:ro
+    command: java -cp /opt/proxy.jar io.kroxylicious.app.Kroxylicious --config /opt/config.yaml
+
+  consumer-proxy:
+    image: eclipse-temurin:21-jre
+    container_name: consumer-proxy
+    depends_on:
+      kafka-source: { condition: service_healthy }
+      kafka-dest:   { condition: service_healthy }
+    volumes:
+      - ./lib/kroxylicious-app.jar:/opt/proxy.jar:ro
+      - ./consumer-proxy-config.yaml:/opt/config.yaml:ro
+    command: java -cp /opt/proxy.jar io.kroxylicious.app.Kroxylicious --config /opt/config.yaml
+
+  # ---------- Workloads ----------
+
+  producer:
+    image: docker.io/apache/kafka:4.1.1
+    container_name: demo-producer
+    depends_on:
+      init-topics:    { condition: service_completed_successfully }
+      producer-proxy: { condition: service_started }
+    environment:
+      BOOTSTRAP: "${PRODUCER_BOOTSTRAP:-producer-proxy:9192}"
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        sleep 5
+        i=0
+        while true; do
+          echo "msg-$$i $$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          i=$$((i+1))
+          sleep 1
+        done | tee /dev/stderr \
+             | /opt/kafka/bin/kafka-console-producer.sh \
+                 --bootstrap-server $$BOOTSTRAP --topic orders 2>/dev/null
+
+  consumer:
+    image: docker.io/apache/kafka:4.1.1
+    container_name: demo-consumer
+    depends_on:
+      init-topics:    { condition: service_completed_successfully }
+      consumer-proxy: { condition: service_started }
+    environment:
+      BOOTSTRAP: "${CONSUMER_BOOTSTRAP:-consumer-proxy:9292}"
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        sleep 5
+        exec /opt/kafka/bin/kafka-console-consumer.sh \
+          --bootstrap-server $$BOOTSTRAP --topic orders \
+          --group demo-consumer --from-beginning
