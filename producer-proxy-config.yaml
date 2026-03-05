@@ -4,7 +4,6 @@
 #   dest-cluster:   producer-proxy:9194 -> kafka-dest:9092
 #
 ---
-useIoUring: false
 virtualClusters:
   - name: source-cluster
     targetCluster:
@@ -32,5 +31,3 @@ virtualClusters:
               end: 1
     logNetwork: false
     logFrames: false
-filterDefinitions:
-defaultFilters:

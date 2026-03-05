@@ -5,7 +5,7 @@ sidecar proxy. Each workload gets its own Kroxylicious instance with two
 virtual clusters — one for source, one for destination. Migration is
 achieved by re-pointing the client to the other virtual cluster.
 
-Everything runs in Docker Compose. No host-side Kafka tools needed.
+Everything runs in Docker Compose. No build step or host-side Kafka tools needed.
 
 ## Architecture
 
@@ -26,23 +26,6 @@ Everything runs in Docker Compose. No host-side Kafka tools needed.
 ## Prerequisites
 
 - Docker (or Podman) with Compose V2
-- Java 21+ and Maven (build only — not needed at runtime)
-
-## Build the proxy fat jar
-
-Clone and build [Kroxylicious](https://github.com/kroxylicious/kroxylicious), then copy the fat jar into the `lib/` directory:
-
-```bash
-# Clone and build Kroxylicious
-git clone https://github.com/kroxylicious/kroxylicious.git
-cd kroxylicious
-mvn package -Pdist -pl kroxylicious-app -am -Dquick -DskipTests
-
-# Copy the fat jar into this repo
-mkdir -p /path/to/kafka-cluster-migration/lib
-cp kroxylicious-app/target/kroxylicious-app-*-jar-with-dependencies.jar \
-   /path/to/kafka-cluster-migration/lib/kroxylicious-app.jar
-```
 
 ## Run the demo
 
@@ -52,7 +35,8 @@ cp kroxylicious-app/target/kroxylicious-app-*-jar-with-dependencies.jar \
 ./step1-start.sh
 ```
 
-Starts two KRaft Kafka clusters, two Kroxylicious sidecars, a producer
+Starts two KRaft Kafka clusters, two Kroxylicious sidecars
+(`quay.io/kroxylicious/kroxylicious:0.19.0`), a producer
 (1 msg/sec to `orders`), and a consumer reading `orders`. Watch output:
 
 ```bash

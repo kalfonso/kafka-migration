@@ -79,26 +79,24 @@ services:
   # ---------- Kroxylicious sidecars ----------
 
   producer-proxy:
-    image: eclipse-temurin:21-jre
+    image: quay.io/kroxylicious/kroxylicious:0.19.0
     container_name: producer-proxy
     depends_on:
       kafka-source: { condition: service_healthy }
       kafka-dest:   { condition: service_healthy }
     volumes:
-      - ./lib/kroxylicious-app.jar:/opt/proxy.jar:ro
-      - ./producer-proxy-config.yaml:/opt/config.yaml:ro
-    command: java -cp /opt/proxy.jar io.kroxylicious.app.Kroxylicious --config /opt/config.yaml
+      - ./producer-proxy-config.yaml:/opt/kroxylicious/config/config.yaml:ro
+    command: --config /opt/kroxylicious/config/config.yaml
 
   consumer-proxy:
-    image: eclipse-temurin:21-jre
+    image: quay.io/kroxylicious/kroxylicious:0.19.0
     container_name: consumer-proxy
     depends_on:
       kafka-source: { condition: service_healthy }
       kafka-dest:   { condition: service_healthy }
     volumes:
-      - ./lib/kroxylicious-app.jar:/opt/proxy.jar:ro
-      - ./consumer-proxy-config.yaml:/opt/config.yaml:ro
-    command: java -cp /opt/proxy.jar io.kroxylicious.app.Kroxylicious --config /opt/config.yaml
+      - ./consumer-proxy-config.yaml:/opt/kroxylicious/config/config.yaml:ro
+    command: --config /opt/kroxylicious/config/config.yaml
 
   # ---------- Workloads ----------
 
