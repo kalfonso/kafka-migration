@@ -1,119 +1,181 @@
 # Troubleshooting
 
-Hard-won notes from getting TLS + SNI-routed Kroxylicious working with Java
-Kafka clients. Most issues here look like generic "TLS handshake failed" but
-have non-obvious causes.
+Non-obvious failure modes for the Kroxylicious + TLS + SNI demo. Most
+of these will only bite you if you change something - the defaults
+work - but each one represents a place where the design is more
+load-bearing than it looks.
 
-## Quickly verify what should be true
+## 1. TLS handshake fails: "unable to find valid certification path"
 
-```bash
-# Cert SANs - all 8 SNI hostnames must be present
-keytool -list -v -keystore certs/generated/keystore.p12 \
-  -storepass changeit -storetype PKCS12 | grep -A1 "Subject Alternative"
+Symptom (Java client):
 
-# Proxy is actually serving TLS on the SNI hostname
-openssl s_client -connect localhost:9192 \
-  -servername source.producer-proxy -showcerts </dev/null 2>&1 | head -20
-
-# Consumer group exists on the right cluster (use the underlying broker, not the proxy)
-docker exec kafka-source /opt/kafka/bin/kafka-consumer-groups.sh \
-  --bootstrap-server localhost:9092 --describe --group demo-consumer
+```
+PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException:
+unable to find valid certification path to requested target
 ```
 
-## TLS handshake fails
+Cause: the client truststore does not contain the cert that the
+proxy presented. Either the truststore is stale (regenerated keystore,
+old truststore mounted) or the wrong file is mounted into the
+container.
 
-### `No subject alternative DNS name matching ... found`
-
-The Java client verifies the cert against the SNI hostname (`https`
-endpoint identification). Two common causes:
-
-1. The hostname the client connects to is not in the cert SANs. Check the
-   keystore (`keytool -list -v` above). The cert must list every SNI
-   hostname both proxies expose: `source.producer-proxy`,
-   `dest.producer-proxy`, `broker-1.source.producer-proxy`,
-   `broker-1.dest.producer-proxy`, and the same four for `consumer-proxy`.
-2. The keystore was regenerated but the proxy container was not restarted.
-   Kroxylicious loads the keystore on startup. `docker compose restart
-   producer-proxy consumer-proxy` after running `certs/generate-certs.sh`.
-
-### Client connects but advertised broker is unreachable
-
-Kafka's bootstrap returns advertised broker addresses to the client. Those
-must also resolve and pass cert verification. Two preconditions:
-
-- The advertised pattern in the proxy config contains `$(nodeId)` and
-  matches the cert SAN: `broker-$(nodeId).source.producer-proxy:9192`.
-- The proxy container has a Docker network alias for each
-  `broker-N.<env>.<proxy>` hostname (see `docker-compose.yaml`). Without
-  the alias, DNS resolution fails inside the compose network *before* TLS
-  even starts, and the error is misleading ("connection refused").
-
-### `endpoint identification algorithm` defaults to empty
-
-Kafka's default for `ssl.endpoint.identification.algorithm` is `https`
-since 2.0, but if you copy a config from an older version or set it
-explicitly to empty, hostname verification is skipped and SNI mismatches
-are silently accepted - until the server presents a cert that doesn't
-match anything, at which point you get a confusing connection failure
-instead of a clear cert error. Keep it at `https`.
-
-## Kroxylicious config schema
-
-The 0.19.0 schema is not exhaustively documented. Reverse-engineer it from
-the runtime jar:
+Check:
 
 ```bash
-# Find and copy the runtime jar out of the image
-CID=$(docker create quay.io/kroxylicious/kroxylicious:0.19.0)
-docker cp "$CID:/" - | tar -xO --wildcards '*kroxylicious-runtime-*.jar' \
-  > /tmp/kroxylicious-runtime.jar
-docker rm "$CID" >/dev/null
-
-# Inspect the record fields - method signatures show the YAML keys
-javap -p -classpath /tmp/kroxylicious-runtime.jar \
-  io.kroxylicious.proxy.config.tls.KeyStore \
-  io.kroxylicious.proxy.config.tls.InlinePassword \
-  io.kroxylicious.proxy.config.SniHostIdentifiesNodeIdentificationStrategy
+keytool -list -keystore certs/generated/truststore.p12 \
+  -storetype PKCS12 -storepass changeit
 ```
 
-Key things this tells you:
+The fingerprint must match the one in `keystore.p12`. If they
+diverge, regenerate both - see section 5.
 
-- `KeyProvider` and `PasswordProvider` use Jackson's `DEDUCTION` typing.
-  YAML keys map directly to record fields - no `type:` discriminator. So
-  `storePassword: { password: changeit }` is `InlinePassword`, while
-  `storePassword: { passwordFile: /path }` would be `FilePassword`.
-- `VirtualClusterGateway` accepts EITHER `portIdentifiesNode` OR
-  `sniHostIdentifiesNode`, never both. Optional `tls` block is shared.
-- `sniHostIdentifiesNode` requires `bootstrapAddress` AND
-  `advertisedBrokerAddressPattern`. The pattern MUST contain `$(nodeId)`
-  or startup fails with a validation error.
+## 2. TLS handshake fails: "No subject alternative DNS name matching ... found"
 
-## SNI routing oddities
+Symptom:
 
-Both virtual clusters can share a single TCP port - that is the entire
-point of SNI routing. The proxy decides which virtual cluster the client
-hit by reading the SNI extension on the TLS ClientHello, before any Kafka
-protocol bytes flow. Consequence: misconfigured SNI looks like a TLS
-problem, not a routing problem. If `openssl s_client -servername X` works
-but the Kafka client fails for the same `X`, the issue is downstream
-(target cluster, advertised brokers) - not the SNI extension itself.
+```
+javax.net.ssl.SSLHandshakeException:
+  No subject alternative DNS name matching source.producer-proxy found.
+```
 
-## docker vs podman shell alias
+Cause: the cert's SAN list does not cover the hostname the client is
+connecting to. This is the SNI hostname - not the docker container
+name.
 
-The migration scripts call `docker compose ...`. On this machine `docker`
-is a shell alias for `podman`. Aliases are NOT inherited by non-interactive
-subshells - so a script run via `bash step1-start.sh` from a context that
-doesn't load the alias will fail with "docker: command not found".
+Every hostname that appears in either proxy YAML must be a SAN on the
+cert. The full set is hard-coded in `certs/generate-certs.sh`:
 
-Fixes (any one):
+```
+source.producer-proxy   broker-1.source.producer-proxy
+dest.producer-proxy     broker-1.dest.producer-proxy
+source.consumer-proxy   broker-1.source.consumer-proxy
+dest.consumer-proxy     broker-1.dest.consumer-proxy
+```
 
-- Run the script directly: `./step1-start.sh` (uses your interactive shell).
-- Replace `docker` with `podman` in the scripts (lossy if collaborators use real Docker).
-- Symlink: `ln -s "$(which podman)" ~/bin/docker` and put `~/bin` on PATH.
+If you add a virtual cluster, add its bootstrap and broker hostnames to
+the SAN list and to `docker-compose.yaml` network aliases - then
+regenerate.
 
-## Cert regeneration
+## 3. Connection succeeds, then "Connection refused" on the broker address
 
-`certs/generate-certs.sh` removes the existing `.p12`/`.crt` files before
-regenerating (keytool can't append SANs to an existing cert, so adding a
-new SNI hostname always means a fresh keystore). After regeneration,
-restart the proxies - they read the keystore once at startup.
+Symptom: the bootstrap connection works, the client receives metadata,
+then fails connecting to `broker-1.source.producer-proxy:9192`.
+
+Cause: the advertised broker hostname does not resolve. Kroxylicious
+returns whatever you put in `advertisedBrokerAddressPattern` in the
+metadata response; the client trusts it and tries to dial that host.
+If docker DNS does not resolve `broker-1.source.producer-proxy`, the
+second hop fails.
+
+The fix lives in `docker-compose.yaml`: the proxy container needs a
+network alias for every advertised broker hostname. From
+`docker-compose.yaml`:
+
+```yaml
+producer-proxy:
+  ...
+  networks:
+    default:
+      aliases:
+        - source.producer-proxy
+        - dest.producer-proxy
+        - broker-1.source.producer-proxy
+        - broker-1.dest.producer-proxy
+```
+
+The bootstrap aliases on their own are not enough - the broker
+aliases are what makes the second hop resolvable. Adding a virtual
+cluster means adding both bootstrap and broker aliases.
+
+## 4. `ssl.endpoint.identification.algorithm` must be `https`
+
+`clients/src/main/java/com/example/kafkamigration/TlsProps.java` sets:
+
+```java
+props.put(SslConfigs.SSL_ENDPOINT_IDENTIFICATION_ALGORITHM_CONFIG, "https");
+```
+
+Do not set this to empty string to make a TLS error go away. Empty
+disables hostname verification, which means the cert's SAN list is no
+longer enforced - any cert signed by anything in the truststore would
+be accepted regardless of hostname. With `https` enabled, hostname
+verification on the SNI name is what makes the SAN list in section 2
+load-bearing.
+
+The Kafka client default is `https` from 2.0+ for SSL connections, so
+the explicit set is belt-and-braces. Leave it.
+
+## 5. Regenerating certs
+
+The keystore and truststore must always be regenerated together - they
+are linked by the cert fingerprint.
+
+```bash
+rm -rf certs/generated
+./certs/generate-certs.sh
+docker compose restart producer-proxy consumer-proxy producer consumer
+```
+
+The proxies and clients mount `certs/generated` read-only, so a
+restart is enough - no rebuild. If you only restart one side you will
+get section 1's PKIX error.
+
+`step1-start.sh` only generates certs when `keystore.p12` is missing.
+After editing the SAN list in `generate-certs.sh`, delete the
+`generated/` directory or run `just certs` (see additional notes).
+
+## 6. The `sniHostIdentifiesNode` schema is reverse-engineered
+
+The Kroxylicious config schema uses Jackson polymorphic deserialization
+with `JsonTypeInfo.Id.DEDUCTION`. There is no `type:` discriminator on
+gateway entries - Jackson picks the gateway implementation by looking
+at which fields are present.
+
+Practically:
+
+- `sniHostIdentifiesNode:` selects the SNI gateway. Its required
+  fields are `bootstrapAddress` and `advertisedBrokerAddressPattern`.
+- A typo in either field name will silently route the YAML to a
+  different gateway type or fail with a deduction error that does not
+  point at the typo.
+- `bootstrapAddress` and `advertisedBrokerAddressPattern` must agree
+  on port. The proxy listens on the port from `bootstrapAddress`;
+  `advertisedBrokerAddressPattern` is what the client tries next.
+  Mismatched ports produce section 3.
+
+If you need to extend the config, work from a known-good example and
+compare. Skipping the docs and grep'ing the source for the gateway
+type's `@JsonProperty` annotations is faster than the published YAML
+reference.
+
+## 7. The shell alias trap (docker / podman / colima)
+
+If `docker` is aliased to `podman` (common on macOS via colima or
+podman-desktop), the demo will mostly work but two things diverge:
+
+- Network alias resolution. Podman's default DNS plugin resolves
+  network aliases; older or non-default backends may not. If section 3
+  reproduces under podman but not docker, this is the suspect.
+- Volume mount permissions. The `certs/generated` mount is `:ro` and
+  must be readable by uid 1000 inside the container. Podman with
+  `:Z`/`:z` SELinux relabelling may surprise you if you copied a
+  command from elsewhere.
+
+Sanity check before debugging anything else:
+
+```bash
+type docker
+docker info | grep -i 'server version\|name:'
+```
+
+If it says `podman`, you know what you have. The demo targets docker
+compose v2 but works on podman compose - just be aware which one is
+running.
+
+## Additional notes
+
+A `justfile` (run with [`just`](https://github.com/casey/just)) wraps
+the cert generation and the four `stepN-*.sh` scripts so the demo can
+be driven with `just up`, `just migrate-producer`, etc. The
+`just certs` target clears `certs/generated` and re-runs
+`certs/generate-certs.sh` - use it after editing the SAN list.
