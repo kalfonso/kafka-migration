@@ -50,7 +50,7 @@ clients/
 producer-proxy-config.yaml   Kroxylicious config (TLS + sniHostIdentifiesNode)
 consumer-proxy-config.yaml
 docker-compose.yaml
-step{1..4}*.sh                migration steps
+step{1..5}*.sh                migration steps
 ```
 
 ## Run the demo
@@ -96,6 +96,16 @@ Polls `demo-consumer` group lag on source. Exits when lag reaches 0.
 
 Recreates the consumer with `BOOTSTRAP=dest.consumer-proxy:9292`. Both
 workloads are now on `kafka-dest`.
+
+### Step 5 - Verify the end state
+
+```bash
+./step5-verify.sh
+```
+
+Samples source/dest end-offsets over a few seconds and prints a
+pass/fail report: producer stopped writing to source, producer writing
+to dest, consumer drained source, consumer keeping up on dest.
 
 ### Tear down
 
