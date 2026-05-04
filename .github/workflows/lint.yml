@@ -13,11 +13,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run shellcheck (severity: error)
-        uses: ludeeus/action-shellcheck@2.0.0
-        env:
-          SHELLCHECK_OPTS: -x
-        with:
-          severity: error
-          scandir: '.'
-          ignore_paths: bin certs/generated clients/target
+      - name: Show shellcheck version
+        run: shellcheck --version
+
+      - name: Lint shell scripts (severity error, follow source)
+        run: |
+          set -euo pipefail
+          find . \
+            -path ./bin -prune -o \
+            -path ./certs/generated -prune -o \
+            -path ./clients/target -prune -o \
+            -path ./.git -prune -o \
+            -type f -name '*.sh' -print0 \
+          | tee /dev/stderr \
+          | xargs -0 -r shellcheck -S error -x
