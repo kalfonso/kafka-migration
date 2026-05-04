@@ -1,0 +1,74 @@
+name: e2e migration
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  migration:
+    name: Run full migration end-to-end
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TOPIC: orders
+      GROUP: demo-consumer
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate TLS material
+        run: ./certs/generate-certs.sh
+
+      - name: Step 1 - bring up the stack
+        run: ./step1-start.sh
+
+      - name: Wait for producer to write to source
+        run: |
+          for i in $(seq 1 60); do
+            n=$(docker exec kafka-source /opt/kafka/bin/kafka-get-offsets.sh \
+                  --bootstrap-server localhost:9092 --topic "$TOPIC" --time -1 2>/dev/null \
+                | awk -F: '{ sum += $3 } END { print sum+0 }')
+            echo "  source end-offset = $n"
+            if [ "$n" -ge 5 ]; then exit 0; fi
+            sleep 2
+          done
+          echo "::error::producer did not reach offset >= 5 on source within 120s"
+          exit 1
+
+      - name: Step 2 - migrate producer to dest
+        run: ./step2-migrate-producer.sh
+
+      - name: Step 3 - wait for consumer to drain source (timeout 120s)
+        run: timeout 120 ./step3-check-lag.sh
+
+      - name: Step 4 - migrate consumer to dest
+        run: ./step4-migrate-consumer.sh
+
+      - name: Let consumer settle on dest
+        run: sleep 8
+
+      - name: Step 5 - verify migration end-state
+        run: ./step5-verify.sh
+
+      - name: Diagnostics (on failure)
+        if: failure()
+        run: |
+          echo "=== docker compose ps ==="
+          docker compose -f docker-compose.yaml ps || true
+          echo "=== producer logs ==="
+          docker logs --tail=200 demo-producer || true
+          echo "=== consumer logs ==="
+          docker logs --tail=200 demo-consumer || true
+          echo "=== producer-proxy logs ==="
+          docker logs --tail=200 producer-proxy || true
+          echo "=== consumer-proxy logs ==="
+          docker logs --tail=200 consumer-proxy || true
+          echo "=== kafka-source logs ==="
+          docker logs --tail=100 kafka-source || true
+          echo "=== kafka-dest logs ==="
+          docker logs --tail=100 kafka-dest || true
+
+      - name: Tear down
+        if: always()
+        run: ./stop.sh
