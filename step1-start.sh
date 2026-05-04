@@ -18,10 +18,16 @@ echo -e "${GREEN}╔════════════════════
 echo -e "${GREEN}║          Kafka Migration Demo — Kroxylicious Sidecar        ║${NC}"
 echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}"
 echo ""
+if [ ! -f "$SCRIPT_DIR/certs/generated/keystore.p12" ]; then
+  echo -e "${YELLOW}Generating TLS certificates (one-off)...${NC}"
+  KEYTOOL="${KEYTOOL:-$SCRIPT_DIR/bin/keytool}" "$SCRIPT_DIR/certs/generate-certs.sh"
+  echo ""
+fi
+
 echo -e "${YELLOW}Starting all services (Kafka clusters, proxies, producer, consumer)...${NC}"
 echo ""
 
-docker compose -f "$SCRIPT_DIR/docker-compose.yaml" up -d 2>&1
+docker compose -f "$SCRIPT_DIR/docker-compose.yaml" up -d --build 2>&1
 
 echo ""
 echo -e "${GREEN}All services started.${NC}"
