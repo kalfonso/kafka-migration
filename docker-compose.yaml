@@ -71,9 +71,9 @@ services:
       - -c
       - |
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka-source:9092 \
-          --create --if-not-exists --topic orders --partitions 1 --replication-factor 1
+          --create --if-not-exists --topic orders --partitions 3 --replication-factor 1
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka-dest:9092 \
-          --create --if-not-exists --topic orders --partitions 1 --replication-factor 1
+          --create --if-not-exists --topic orders --partitions 3 --replication-factor 1
         echo "Topics created on both clusters."
 
   # ---------- Kroxylicious sidecars ----------

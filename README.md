@@ -68,7 +68,8 @@ step{1..5}*.sh                migration steps
 On first run the script generates the demo keystore/truststore, then builds
 the Java client image and starts: two KRaft Kafka clusters, two Kroxylicious
 sidecars (`quay.io/kroxylicious/kroxylicious:0.19.0`), the Java producer
-(1 msg/sec to `orders`) and the Java consumer.
+(1 msg/sec to `orders`, 3 partitions, messages keyed across `alice/bob/carol/dave`)
+and the Java consumer.
 
 ```bash
 docker compose logs -f consumer

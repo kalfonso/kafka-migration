@@ -31,8 +31,8 @@ while true; do
     fi
 
     LAG=$(echo "$OUTPUT" | awk 'NR>1 && $6 ~ /^[0-9]+$/ { sum += $6 } END { print sum+0 }')
-    CURRENT=$(echo "$OUTPUT" | awk 'NR>1 && $4 ~ /^[0-9]+$/ { print $4 }')
-    LOG_END=$(echo "$OUTPUT" | awk 'NR>1 && $5 ~ /^[0-9]+$/ { print $5 }')
+    CURRENT=$(echo "$OUTPUT" | awk 'NR>1 && $4 ~ /^[0-9]+$/ { sum += $4 } END { print sum+0 }')
+    LOG_END=$(echo "$OUTPUT" | awk 'NR>1 && $5 ~ /^[0-9]+$/ { sum += $5 } END { print sum+0 }')
 
     printf "  current-offset=%-6s  log-end-offset=%-6s  lag=%s\n" "$CURRENT" "$LOG_END" "$LAG"
 

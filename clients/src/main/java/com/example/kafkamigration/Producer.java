@@ -21,15 +21,18 @@ public final class Producer {
         props.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, "true");
         props.put(ProducerConfig.CLIENT_ID_CONFIG, "demo-producer");
 
+        String[] keys = {"alice", "bob", "carol", "dave"};
+
         try (KafkaProducer<String, String> producer = new KafkaProducer<>(props)) {
             long i = 0;
             while (!Thread.currentThread().isInterrupted()) {
+                String key = keys[(int) (i % keys.length)];
                 String value = "msg-" + i + " " + Instant.now();
-                producer.send(new ProducerRecord<>(topic, value), (md, ex) -> {
+                producer.send(new ProducerRecord<>(topic, key, value), (md, ex) -> {
                     if (ex != null) {
                         System.err.println("send failed: " + ex.getMessage());
                     } else {
-                        System.out.println("sent: " + value + " -> " + md.topic() + "-" + md.partition() + "@" + md.offset());
+                        System.out.println("sent: key=" + key + " " + value + " -> " + md.topic() + "-" + md.partition() + "@" + md.offset());
                     }
                 });
                 i++;
