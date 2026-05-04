@@ -1,14 +1,14 @@
 #
-# Migration demo: all-in-Docker.
+# Migration demo: all-in-Docker, TLS + SNI everywhere between clients and proxies.
 #
 # Services:
-#   kafka-source       Source Kafka cluster (KRaft, single node)
-#   kafka-dest         Destination Kafka cluster (KRaft, single node)
-#   producer-proxy     Kroxylicious sidecar for the producer
-#   consumer-proxy     Kroxylicious sidecar for the consumer
+#   kafka-source       Source Kafka cluster (KRaft, single node, plaintext on internal network)
+#   kafka-dest         Destination Kafka cluster (KRaft, single node, plaintext on internal network)
+#   producer-proxy     Kroxylicious sidecar for the producer (TLS, SNI-routed)
+#   consumer-proxy     Kroxylicious sidecar for the consumer (TLS, SNI-routed)
 #   init-topics        One-shot: creates the 'orders' topic on both clusters
-#   producer           Produces 1 msg/sec through producer-proxy
-#   consumer           Consumes from orders through consumer-proxy
+#   producer           Java producer connecting to producer-proxy via TLS
+#   consumer           Java consumer connecting to consumer-proxy via TLS
 #
 
 services:
@@ -77,6 +77,9 @@ services:
         echo "Topics created on both clusters."
 
   # ---------- Kroxylicious sidecars ----------
+  # Each proxy serves both source-cluster and dest-cluster on a single TLS port,
+  # routed by SNI hostname. Network aliases give the container the SNI hostnames
+  # the clients will resolve.
 
   producer-proxy:
     image: quay.io/kroxylicious/kroxylicious:0.19.0
@@ -86,7 +89,15 @@ services:
       kafka-dest:   { condition: service_healthy }
     volumes:
       - ./producer-proxy-config.yaml:/opt/kroxylicious/config/config.yaml:ro
+      - ./certs/generated:/opt/kroxylicious/certs:ro
     command: --config /opt/kroxylicious/config/config.yaml
+    networks:
+      default:
+        aliases:
+          - source.producer-proxy
+          - dest.producer-proxy
+          - broker-1.source.producer-proxy
+          - broker-1.dest.producer-proxy
 
   consumer-proxy:
     image: quay.io/kroxylicious/kroxylicious:0.19.0
@@ -96,45 +107,47 @@ services:
       kafka-dest:   { condition: service_healthy }
     volumes:
       - ./consumer-proxy-config.yaml:/opt/kroxylicious/config/config.yaml:ro
+      - ./certs/generated:/opt/kroxylicious/certs:ro
     command: --config /opt/kroxylicious/config/config.yaml
+    networks:
+      default:
+        aliases:
+          - source.consumer-proxy
+          - dest.consumer-proxy
+          - broker-1.source.consumer-proxy
+          - broker-1.dest.consumer-proxy
 
   # ---------- Workloads ----------
 
   producer:
-    image: docker.io/apache/kafka:4.1.1
+    build:
+      context: ./clients
     container_name: demo-producer
     depends_on:
       init-topics:    { condition: service_completed_successfully }
       producer-proxy: { condition: service_started }
     environment:
-      BOOTSTRAP: "${PRODUCER_BOOTSTRAP:-producer-proxy:9192}"
-    entrypoint: /bin/bash
-    command:
-      - -c
-      - |
-        sleep 5
-        i=0
-        while true; do
-          echo "msg-$$i $$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          i=$$((i+1))
-          sleep 1
-        done | tee /dev/stderr \
-             | /opt/kafka/bin/kafka-console-producer.sh \
-                 --bootstrap-server $$BOOTSTRAP --topic orders 2>/dev/null
+      MAIN_CLASS: com.example.kafkamigration.Producer
+      BOOTSTRAP: "${PRODUCER_BOOTSTRAP:-source.producer-proxy:9192}"
+      TOPIC: orders
+      TRUSTSTORE_LOCATION: /certs/truststore.p12
+      TRUSTSTORE_PASSWORD: changeit
+    volumes:
+      - ./certs/generated:/certs:ro
 
   consumer:
-    image: docker.io/apache/kafka:4.1.1
+    build:
+      context: ./clients
     container_name: demo-consumer
     depends_on:
       init-topics:    { condition: service_completed_successfully }
       consumer-proxy: { condition: service_started }
     environment:
-      BOOTSTRAP: "${CONSUMER_BOOTSTRAP:-consumer-proxy:9292}"
-    entrypoint: /bin/bash
-    command:
-      - -c
-      - |
-        sleep 5
-        exec /opt/kafka/bin/kafka-console-consumer.sh \
-          --bootstrap-server $$BOOTSTRAP --topic orders \
-          --group demo-consumer --from-beginning
+      MAIN_CLASS: com.example.kafkamigration.Consumer
+      BOOTSTRAP: "${CONSUMER_BOOTSTRAP:-source.consumer-proxy:9292}"
+      TOPIC: orders
+      GROUP_ID: demo-consumer
+      TRUSTSTORE_LOCATION: /certs/truststore.p12
+      TRUSTSTORE_PASSWORD: changeit
+    volumes:
+      - ./certs/generated:/certs:ro

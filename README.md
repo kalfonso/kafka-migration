@@ -1,58 +1,86 @@
-# Kafka Cluster Migration Demo — Kroxylicious Sidecar
+# Kafka Cluster Migration Demo - Kroxylicious Sidecar
 
 Demonstrates Kafka workload migration using [Kroxylicious](https://github.com/kroxylicious/kroxylicious) as a per-workload
 sidecar proxy. Each workload gets its own Kroxylicious instance with two
-virtual clusters — one for source, one for destination. Migration is
-achieved by re-pointing the client to the other virtual cluster.
+virtual clusters - one for source, one for destination. Migration is
+achieved by re-pointing the client at the other virtual cluster.
 
-Everything runs in Docker Compose. No build step or host-side Kafka tools needed.
+Clients are Java (Kafka 4.1 client). Traffic between clients and proxies is
+TLS, and the two virtual clusters on each proxy share a single TCP port -
+Kroxylicious routes by **SNI hostname** on the TLS handshake
+(`sniHostIdentifiesNode`).
 
 ## Architecture
 
 ```
-                     ┌─────────────────────────┐
-  demo-producer ───▶ │  producer-proxy          │
-                     │   :9192 → kafka-source   │
-                     │   :9194 → kafka-dest     │
-                     └─────────────────────────┘
+                                  TLS (SNI=source.producer-proxy)
+  demo-producer (Java) ────────▶ ┌──────────────────────────────┐
+                                  │  producer-proxy :9192         │
+                                  │   source.producer-proxy ──▶ kafka-source
+                                  │   dest.producer-proxy   ──▶ kafka-dest
+                                  └──────────────────────────────┘
 
-                     ┌─────────────────────────┐
-  demo-consumer ───▶ │  consumer-proxy          │
-                     │   :9292 → kafka-source   │
-                     │   :9294 → kafka-dest     │
-                     └─────────────────────────┘
+                                  TLS (SNI=source.consumer-proxy)
+  demo-consumer (Java) ────────▶ ┌──────────────────────────────┐
+                                  │  consumer-proxy :9292         │
+                                  │   source.consumer-proxy ──▶ kafka-source
+                                  │   dest.consumer-proxy   ──▶ kafka-dest
+                                  └──────────────────────────────┘
 ```
 
 ## Prerequisites
 
 - Docker (or Podman) with Compose V2
+- [hermit](https://cashapp.github.io/hermit/) (optional - already vendored
+  in `bin/`; use `. bin/activate-hermit` for direct `java`/`mvn`/`keytool`)
+
+## Layout
+
+```
+bin/                     hermit-managed openjdk@25 + maven
+certs/
+  generate-certs.sh      one-off TLS keystore/truststore generator (keytool)
+  generated/             output (gitignored): keystore.p12, truststore.p12
+clients/
+  pom.xml                Maven module
+  Dockerfile             multi-stage build for the demo image
+  src/.../Producer.java
+  src/.../Consumer.java
+  src/.../TlsProps.java  shared TLS client props
+producer-proxy-config.yaml   Kroxylicious config (TLS + sniHostIdentifiesNode)
+consumer-proxy-config.yaml
+docker-compose.yaml
+step{1..4}*.sh                migration steps
+```
 
 ## Run the demo
 
-### Step 1 — Start everything
+### Step 1 - Start everything
 
 ```bash
 ./step1-start.sh
 ```
 
-Starts two KRaft Kafka clusters, two Kroxylicious sidecars
-(`quay.io/kroxylicious/kroxylicious:0.19.0`), a producer
-(1 msg/sec to `orders`), and a consumer reading `orders`. Watch output:
+On first run the script generates the demo keystore/truststore, then builds
+the Java client image and starts: two KRaft Kafka clusters, two Kroxylicious
+sidecars (`quay.io/kroxylicious/kroxylicious:0.19.0`), the Java producer
+(1 msg/sec to `orders`) and the Java consumer.
 
 ```bash
 docker compose logs -f consumer
 ```
 
-### Step 2 — Migrate the producer
+### Step 2 - Migrate the producer
 
 ```bash
 ./step2-migrate-producer.sh
 ```
 
-Recreates the producer container pointing at `producer-proxy:9194` (the
-dest virtual cluster). New messages now flow to `kafka-dest`.
+Recreates the producer container with `BOOTSTRAP=dest.producer-proxy:9192`.
+Same TCP port as before - only the SNI hostname changes - so Kroxylicious
+routes the new connections to the dest virtual cluster.
 
-### Step 3 — Wait for the consumer to drain source
+### Step 3 - Wait for the consumer to drain source
 
 ```bash
 ./step3-check-lag.sh
@@ -60,14 +88,14 @@ dest virtual cluster). New messages now flow to `kafka-dest`.
 
 Polls `demo-consumer` group lag on source. Exits when lag reaches 0.
 
-### Step 4 — Migrate the consumer
+### Step 4 - Migrate the consumer
 
 ```bash
 ./step4-migrate-consumer.sh
 ```
 
-Recreates the consumer container pointing at `consumer-proxy:9294` (the
-dest virtual cluster). Both workloads are now on `kafka-dest`.
+Recreates the consumer with `BOOTSTRAP=dest.consumer-proxy:9292`. Both
+workloads are now on `kafka-dest`.
 
 ### Tear down
 
@@ -75,19 +103,37 @@ dest virtual cluster). Both workloads are now on `kafka-dest`.
 ./stop.sh
 ```
 
+## TLS material
+
+`certs/generate-certs.sh` produces a single self-signed cert with SANs for
+every SNI hostname the proxies expose:
+
+```
+source.producer-proxy   broker-1.source.producer-proxy
+dest.producer-proxy     broker-1.dest.producer-proxy
+source.consumer-proxy   broker-1.source.consumer-proxy
+dest.consumer-proxy     broker-1.dest.consumer-proxy
+```
+
+Both proxies mount the same keystore. Clients use the matching truststore
+and run with `ssl.endpoint.identification.algorithm=https` so SNI hostname
+verification is enforced. Demo password is `changeit` everywhere - do not
+reuse for anything real.
+
 ## What this demonstrates
 
-1. **Zero producer downtime** — the container is recreated in seconds.
+1. **Zero producer downtime** - the container is recreated in seconds.
    In production, a Kubernetes ConfigMap change + sidecar restart does the same.
 
-2. **Consumer drains before switching** — step 3 confirms no messages
+2. **Consumer drains before switching** - step 3 confirms no messages
    remain unread on source before the consumer moves.
 
-3. **Per-workload isolation** — each workload has its own proxy instance.
+3. **Per-workload isolation** - each workload has its own proxy instance.
    Migrating one does not affect the other.
 
-4. **No code changes** — the producer and consumer are standard Kafka
-   clients; only the bootstrap address changes.
+4. **No client code changes** - only the bootstrap address (and therefore
+   the SNI hostname) changes between source and dest.
 
-5. **No custom filters needed** — routing is handled by standard
-   Kroxylicious virtual cluster configuration. No PrincipalRouter, no SASL.
+5. **TLS + SNI routing** - both virtual clusters per proxy share one TCP
+   port; routing is decided on the TLS handshake. No PrincipalRouter, no
+   custom filter, no SASL.

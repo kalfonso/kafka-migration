@@ -1,7 +1,8 @@
 #
 # Producer sidecar: two virtual clusters exposing source and dest Kafka clusters.
-#   source-cluster: producer-proxy:9192 -> kafka-source:9092
-#   dest-cluster:   producer-proxy:9194 -> kafka-dest:9092
+# Both gateways share TCP port 9192; routing is done by SNI hostname.
+#   source.producer-proxy:9192 -> kafka-source:9092
+#   dest.producer-proxy:9192   -> kafka-dest:9092
 #
 ---
 virtualClusters:
@@ -10,12 +11,15 @@ virtualClusters:
       bootstrapServers: kafka-source:9092
     gateways:
       - name: default
-        portIdentifiesNode:
-          bootstrapAddress: producer-proxy:9192
-          nodeIdRanges:
-            - name: "default"
-              start: 1
-              end: 1
+        sniHostIdentifiesNode:
+          bootstrapAddress: source.producer-proxy:9192
+          advertisedBrokerAddressPattern: broker-$(nodeId).source.producer-proxy:9192
+        tls:
+          key:
+            storeFile: /opt/kroxylicious/certs/keystore.p12
+            storePassword:
+              password: changeit
+            storeType: PKCS12
     logNetwork: false
     logFrames: false
   - name: dest-cluster
@@ -23,11 +27,14 @@ virtualClusters:
       bootstrapServers: kafka-dest:9092
     gateways:
       - name: default
-        portIdentifiesNode:
-          bootstrapAddress: producer-proxy:9194
-          nodeIdRanges:
-            - name: "default"
-              start: 1
-              end: 1
+        sniHostIdentifiesNode:
+          bootstrapAddress: dest.producer-proxy:9192
+          advertisedBrokerAddressPattern: broker-$(nodeId).dest.producer-proxy:9192
+        tls:
+          key:
+            storeFile: /opt/kroxylicious/certs/keystore.p12
+            storePassword:
+              password: changeit
+            storeType: PKCS12
     logNetwork: false
     logFrames: false
