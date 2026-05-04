@@ -100,16 +100,17 @@ but the Kafka client fails for the same `X`, the issue is downstream
 
 ## docker vs podman shell alias
 
-The migration scripts call `docker compose ...`. On this machine `docker`
-is a shell alias for `podman`. Aliases are NOT inherited by non-interactive
-subshells - so a script run via `bash step1-start.sh` from a context that
-doesn't load the alias will fail with "docker: command not found".
+The migration scripts and `justfile` invoke the container CLI via
+`${CONTAINER_CMD:-docker}`. Two consequences:
 
-Fixes (any one):
-
-- Run the script directly: `./step1-start.sh` (uses your interactive shell).
-- Replace `docker` with `podman` in the scripts (lossy if collaborators use real Docker).
-- Symlink: `ln -s "$(which podman)" ~/bin/docker` and put `~/bin` on PATH.
+- For Podman: `CONTAINER_CMD=podman ./step1-start.sh` (or
+  `CONTAINER_CMD=podman just up`). No script edits, no symlinks.
+- For Docker on a machine where `docker` is a shell alias for `podman`:
+  shell aliases are NOT inherited by non-interactive subshells, so
+  invoking the scripts from a context that doesn't load your interactive
+  rc will fail with "docker: command not found". Either run with
+  `CONTAINER_CMD=podman`, or symlink:
+  `ln -s "$(which podman)" ~/bin/docker` and put `~/bin` on PATH.
 
 ## Cert regeneration
 

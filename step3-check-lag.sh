@@ -9,6 +9,7 @@
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GROUP="demo-consumer"
+CONTAINER_CMD="${CONTAINER_CMD:-docker}"
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -20,7 +21,7 @@ echo -e "${CYAN}(Waiting for lag to reach 0 — the consumer is draining the sou
 echo ""
 
 while true; do
-    OUTPUT=$(docker exec kafka-source /opt/kafka/bin/kafka-consumer-groups.sh \
+    OUTPUT=$("$CONTAINER_CMD" exec kafka-source /opt/kafka/bin/kafka-consumer-groups.sh \
         --bootstrap-server localhost:9092 --describe --group "$GROUP" 2>/dev/null || echo "")
 
     if [ -z "$OUTPUT" ] || echo "$OUTPUT" | grep -q "does not exist"; then
