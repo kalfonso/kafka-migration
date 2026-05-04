@@ -30,9 +30,13 @@ Kroxylicious routes by **SNI hostname** on the TLS handshake
 
 ## Prerequisites
 
-- Docker (or Podman) with Compose V2
+- Docker (or Podman) with Compose V2. The step scripts and justfile honour
+  `CONTAINER_CMD` (default `docker`) - run with `CONTAINER_CMD=podman` to
+  use Podman instead.
 - [hermit](https://cashapp.github.io/hermit/) (optional - already vendored
   in `bin/`; use `. bin/activate-hermit` for direct `java`/`mvn`/`keytool`)
+- [just](https://github.com/casey/just) (optional) - the `justfile` wraps
+  every step (`just up`, `just migrate-producer`, ...).
 
 ## Layout
 

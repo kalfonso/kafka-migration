@@ -17,6 +17,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TOPIC="${TOPIC:-orders}"
 GROUP="${GROUP:-demo-consumer}"
 SAMPLE_INTERVAL="${SAMPLE_INTERVAL:-3}"
+CONTAINER_CMD="${CONTAINER_CMD:-docker}"
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -26,14 +27,14 @@ NC='\033[0m'
 
 end_offset() {
     local cluster="$1"
-    { docker exec "$cluster" /opt/kafka/bin/kafka-get-offsets.sh \
+    { "$CONTAINER_CMD" exec "$cluster" /opt/kafka/bin/kafka-get-offsets.sh \
         --bootstrap-server localhost:9092 --topic "$TOPIC" --time -1 2>/dev/null \
         || true; } | awk -F: '{ sum += $3 } END { print sum+0 }'
 }
 
 group_lag() {
     local cluster="$1"
-    { docker exec "$cluster" /opt/kafka/bin/kafka-consumer-groups.sh \
+    { "$CONTAINER_CMD" exec "$cluster" /opt/kafka/bin/kafka-consumer-groups.sh \
         --bootstrap-server localhost:9092 --describe --group "$GROUP" 2>/dev/null \
         || true; } | awk 'NR>1 && $6 ~ /^[0-9]+$/ { sum += $6 } END { print sum+0 }'
 }

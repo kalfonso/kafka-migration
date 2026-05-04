@@ -172,6 +172,18 @@ If it says `podman`, you know what you have. The demo targets docker
 compose v2 but works on podman compose - just be aware which one is
 running.
 
+The migration scripts and `justfile` invoke the container CLI via
+`${CONTAINER_CMD:-docker}`. Two consequences:
+
+- For Podman: `CONTAINER_CMD=podman ./step1-start.sh` (or
+  `CONTAINER_CMD=podman just up`). No script edits, no symlinks.
+- For Docker on a machine where `docker` is a shell alias for `podman`:
+  shell aliases are NOT inherited by non-interactive subshells, so
+  invoking the scripts from a context that doesn't load your interactive
+  rc will fail with "docker: command not found". Either run with
+  `CONTAINER_CMD=podman`, or symlink:
+  `ln -s "$(which podman)" ~/bin/docker` and put `~/bin` on PATH.
+
 ## Additional notes
 
 A `justfile` (run with [`just`](https://github.com/casey/just)) wraps

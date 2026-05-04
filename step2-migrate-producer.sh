@@ -11,6 +11,7 @@
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPOSE_FILE="$SCRIPT_DIR/docker-compose.yaml"
+CONTAINER_CMD="${CONTAINER_CMD:-docker}"
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -19,7 +20,7 @@ NC='\033[0m'
 echo -e "${YELLOW}Migrating producer: source.producer-proxy:9192 -> dest.producer-proxy:9192${NC}"
 
 PRODUCER_BOOTSTRAP=dest.producer-proxy:9192 \
-  docker compose -f "$COMPOSE_FILE" up -d --force-recreate --no-deps producer
+  "$CONTAINER_CMD" compose -f "$COMPOSE_FILE" up -d --force-recreate --no-deps producer
 
 echo ""
 echo -e "${GREEN}Producer is now writing to the dest Kafka cluster.${NC}"

@@ -2,8 +2,13 @@
 # Wrapper for the migration demo. Install `just` from
 # https://github.com/casey/just then run `just` to see targets.
 #
+# Override the container orchestrator with podman:
+#   CONTAINER_CMD=podman just up
+#
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
+
+container_cmd := env_var_or_default("CONTAINER_CMD", "docker")
 
 # Default target: list available recipes.
 default:
@@ -21,28 +26,32 @@ certs-clean:
 # Bring up everything (Kafka clusters, proxies, producer, consumer).
 # Generates certs first if missing.
 up:
-    ./step1-start.sh
+    CONTAINER_CMD={{container_cmd}} ./step1-start.sh
 
 # Migrate the producer to the destination cluster.
 migrate-producer:
-    ./step2-migrate-producer.sh
+    CONTAINER_CMD={{container_cmd}} ./step2-migrate-producer.sh
 
 # Wait for the consumer to drain the source cluster.
 check-lag:
-    ./step3-check-lag.sh
+    CONTAINER_CMD={{container_cmd}} ./step3-check-lag.sh
 
 # Migrate the consumer to the destination cluster.
 migrate-consumer:
-    ./step4-migrate-consumer.sh
+    CONTAINER_CMD={{container_cmd}} ./step4-migrate-consumer.sh
+
+# Verify the migration end-state.
+verify:
+    CONTAINER_CMD={{container_cmd}} ./step5-verify.sh
 
 # Tear everything down (containers + volumes).
 down:
-    ./stop.sh
+    CONTAINER_CMD={{container_cmd}} ./stop.sh
 
 # Tail consumer logs.
 logs-consumer:
-    docker compose logs -f consumer
+    {{container_cmd}} compose logs -f consumer
 
 # Tail producer logs.
 logs-producer:
-    docker compose logs -f producer
+    {{container_cmd}} compose logs -f producer

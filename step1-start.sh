@@ -8,6 +8,7 @@
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONTAINER_CMD="${CONTAINER_CMD:-docker}"
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -27,16 +28,16 @@ fi
 echo -e "${YELLOW}Starting all services (Kafka clusters, proxies, producer, consumer)...${NC}"
 echo ""
 
-docker compose -f "$SCRIPT_DIR/docker-compose.yaml" up -d --build 2>&1
+"$CONTAINER_CMD" compose -f "$SCRIPT_DIR/docker-compose.yaml" up -d --build 2>&1
 
 echo ""
 echo -e "${GREEN}All services started.${NC}"
 echo ""
 echo -e "${CYAN}Watch consumer output:${NC}"
-echo "  docker compose -f $SCRIPT_DIR/docker-compose.yaml logs -f consumer"
+echo "  $CONTAINER_CMD compose -f $SCRIPT_DIR/docker-compose.yaml logs -f consumer"
 echo ""
 echo -e "${CYAN}Watch producer output:${NC}"
-echo "  docker compose -f $SCRIPT_DIR/docker-compose.yaml logs -f producer"
+echo "  $CONTAINER_CMD compose -f $SCRIPT_DIR/docker-compose.yaml logs -f producer"
 echo ""
 echo -e "${CYAN}Next steps:${NC}"
 echo "  ./step2-migrate-producer.sh    # migrate producer to dest cluster"
