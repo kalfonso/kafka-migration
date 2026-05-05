@@ -55,6 +55,14 @@ producer-proxy-config.yaml   Kroxylicious config (TLS + sniHostIdentifiesNode)
 consumer-proxy-config.yaml
 docker-compose.yaml
 step{1..5}*.sh                migration steps
+doctor.sh                     pre-flight: static cert/SAN/alias diagnostic
+topic-parity.sh               pre-flight: source/dest topic-config parity
+bench.sh                      proxy overhead benchmark
+dashboard.sh                  live offsets + lag view
+rollback.sh                   post-cutover: re-point a workload back to source
+ARCHITECTURE.md               why SNI routing, components, tradeoffs
+PLAYBOOK.md                   production cutover runbook
+TROUBLESHOOTING.md            known failure modes
 ```
 
 ## Run the demo
@@ -129,6 +137,20 @@ drop to 0, and source lag drain to 0 before `step4` moves the consumer.
 ./stop.sh
 ```
 
+## Pre-flight and ops scripts
+
+Use these around (or instead of) the step scripts above. None of them are required to run the demo, but each one fails for a different reason than the others - run them as you would in production.
+
+| Script              | When               | What it checks                                                                          |
+| ------------------- | ------------------ | --------------------------------------------------------------------------------------- |
+| `doctor.sh`         | before `step1`     | cert SANs, proxy YAML SNI hostnames, and docker-compose network aliases agree.          |
+| `topic-parity.sh`   | before `step2`     | live source/dest topic configs match (partitions, replication, configs).                |
+| `bench.sh`          | any time           | direct-PLAINTEXT vs through-proxy throughput; quantifies Kroxylicious overhead.         |
+| `dashboard.sh`      | during steps 2-4   | live source/dest end-offsets, ingress rate, and consumer-group lag.                     |
+| `rollback.sh`       | after `step2/4`    | re-points a workload back at the source proxy if cutover misbehaves.                    |
+
+`doctor.sh` and `topic-parity.sh` are orthogonal: `doctor` reads files only, `topic-parity` queries running brokers. Run both before cutover.
+
 ## TLS material
 
 `certs/generate-certs.sh` produces a single self-signed cert with SANs for
@@ -163,3 +185,9 @@ reuse for anything real.
 5. **TLS + SNI routing** - both virtual clusters per proxy share one TCP
    port; routing is decided on the TLS handshake. No PrincipalRouter, no
    custom filter, no SASL.
+
+## Further reading
+
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) - why SNI routing, what each component does, tradeoffs vs other migration patterns.
+- [`PLAYBOOK.md`](PLAYBOOK.md) - the cutover runbook, scaled to a real production migration.
+- [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) - known failure modes (TLS, SAN, alias drift) and fixes.
