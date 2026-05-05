@@ -17,7 +17,7 @@
 #   ./dashboard.sh                              # 2s refresh, topic=orders
 #   REFRESH=1 TOPIC=orders ./dashboard.sh
 #
-# Ctrl-C to exit. No external dependencies beyond docker + the Apache
+# Ctrl-C to exit. No external dependencies beyond a container orchestrator (docker, podman) + the Apache
 # Kafka CLI inside the broker images.
 #
 
@@ -28,6 +28,7 @@ GROUP="${GROUP:-demo-consumer}"
 REFRESH="${REFRESH:-2}"
 SOURCE_CONTAINER="${SOURCE_CONTAINER:-kafka-source}"
 DEST_CONTAINER="${DEST_CONTAINER:-kafka-dest}"
+CONTAINER_CMD="${CONTAINER_CMD:-docker}"
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -39,14 +40,14 @@ NC='\033[0m'
 
 end_offset() {
     local container="$1"
-    { docker exec "$container" /opt/kafka/bin/kafka-get-offsets.sh \
+    { ${CONTAINER_CMD} exec "$container" /opt/kafka/bin/kafka-get-offsets.sh \
         --bootstrap-server localhost:9092 --topic "$TOPIC" --time -1 2>/dev/null \
         || true; } | awk -F: '{ sum += $3 } END { print sum+0 }'
 }
 
 group_lag() {
     local container="$1"
-    { docker exec "$container" /opt/kafka/bin/kafka-consumer-groups.sh \
+    { ${CONTAINER_CMD} exec "$container" /opt/kafka/bin/kafka-consumer-groups.sh \
         --bootstrap-server localhost:9092 --describe --group "$GROUP" 2>/dev/null \
         || true; } | awk 'NR>1 && $6 ~ /^[0-9]+$/ { sum += $6 } END { print sum+0 }'
 }
