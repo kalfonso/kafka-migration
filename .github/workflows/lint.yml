@@ -1,0 +1,29 @@
+name: lint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show shellcheck version
+        run: shellcheck --version
+
+      - name: Lint shell scripts (severity error, follow source)
+        run: |
+          set -euo pipefail
+          find . \
+            -path ./bin -prune -o \
+            -path ./certs/generated -prune -o \
+            -path ./clients/target -prune -o \
+            -path ./.git -prune -o \
+            -type f -name '*.sh' -print0 \
+          | tee /dev/stderr \
+          | xargs -0 -r shellcheck -S error -x
