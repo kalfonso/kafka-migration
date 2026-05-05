@@ -48,6 +48,22 @@ verify:
 down:
     CONTAINER_CMD={{container_cmd}} ./stop.sh
 
+# Static cert/SAN/alias diagnostic. Runs without the stack up.
+doctor:
+    ./doctor.sh
+
+# Live offsets + lag dashboard. Refreshes until Ctrl-C.
+dashboard:
+    CONTAINER_CMD={{container_cmd}} ./dashboard.sh
+
+# Measure proxy overhead (direct PLAINTEXT vs TLS+SNI through proxy).
+bench:
+    CONTAINER_CMD={{container_cmd}} ./bench.sh
+
+# Roll producer + consumer back to the source cluster (abort cutover).
+rollback:
+    CONTAINER_CMD={{container_cmd}} ./rollback.sh
+
 # Tail consumer logs.
 logs-consumer:
     {{container_cmd}} compose logs -f consumer
