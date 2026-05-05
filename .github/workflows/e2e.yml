@@ -51,6 +51,9 @@ jobs:
       - name: Step 5 - verify migration end-state
         run: ./step5-verify.sh
 
+      - name: Audit delivery (no loss, measure duplicate window)
+        run: ./audit-delivery.sh
+
       - name: Diagnostics (on failure)
         if: failure()
         run: |
