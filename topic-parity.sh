@@ -174,7 +174,10 @@ echo ""
 if [ $# -gt 0 ]; then
   topics=("$@")
 else
-  mapfile -t topics < <(list_user_topics "$SOURCE")
+  topics=()
+  while IFS= read -r line; do
+    topics+=("$line")
+  done < <(list_user_topics "$SOURCE")
   if [ "${#topics[@]}" -eq 0 ]; then
     echo -e "${YELLOW}No user topics on source. Nothing to check.${NC}"
     exit 0
