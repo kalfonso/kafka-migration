@@ -36,13 +36,28 @@ green() { printf '\033[32m%s\033[0m\n' "$*"; }
 amber() { printf '\033[33m%s\033[0m\n' "$*"; }
 cyan()  { printf '\033[36m%s\033[0m\n' "$*"; }
 
+end_count() {
+    local cluster="$1"
+    { "$CONTAINER_CMD" exec "$cluster" /opt/kafka/bin/kafka-get-offsets.sh \
+        --bootstrap-server localhost:9092 --topic "$TOPIC" --time -1 2>/dev/null \
+        || true; } | awk -F: '{ sum += $3 } END { print sum+0 }'
+}
+
 dump_cluster() {
     local cluster="$1"
     local out="$2"
+    local cnt
+    cnt=$(end_count "$cluster")
+    : > "$out"
+    if [ "$cnt" -eq 0 ]; then return; fi
+    # Bound by the snapshot count - the producer may still be writing to dest,
+    # so --timeout-ms alone never fires. --max-messages exits cleanly once N
+    # records have been read; --timeout-ms is just a safety net.
     "$CONTAINER_CMD" exec "$cluster" /opt/kafka/bin/kafka-console-consumer.sh \
         --bootstrap-server localhost:9092 \
         --topic "$TOPIC" \
         --from-beginning \
+        --max-messages "$cnt" \
         --timeout-ms "$TIMEOUT_MS" \
         --property print.key=true \
         --property key.separator=$'\t' \
