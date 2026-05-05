@@ -6,12 +6,70 @@ on a real workload.
 
 ## TL;DR
 
-This demo is **at-least-once across the cluster boundary**, not
-exactly-once. After step 4 the consumer will re-process every record
-produced to `kafka-dest` between step 2 and step 4. Make your consumer
-idempotent or be willing to live with duplicates.
+The proxy-flip pattern supports two cutover modes:
 
-## Why duplicates exist
+- **Parallel flip** (this demo's `step1`-`step5`): producer migrates first
+  while consumer drains source. Simple and zero-downtime for writes, but
+  **at-least-once** - the consumer re-reads everything produced to dest
+  during the drain. Use this only if your consumer is idempotent.
+- **Drain-first flip** (recommended for non-idempotent consumers): pause
+  the producer, drain the consumer on source, flip the consumer to dest,
+  then resume the producer on dest. **No duplicates, no loss**, at the
+  cost of a brief write pause equal to the source drain time.
+
+The "duplicates" in the rest of this doc are specific to the parallel
+flip. The drain-first variant eliminates them by construction - see
+[Drain-first cutover](#drain-first-cutover-no-duplicates).
+
+## Drain-first cutover (no duplicates)
+
+If the consumer is not idempotent, run the cutover so that the producer
+is never writing to dest while the consumer is still reading source.
+Each record then exists on exactly one cluster and is consumed exactly
+once.
+
+```
+              pause-prod   drain done   flip-consumer   resume-prod
+producer:  ---|              ...                       |--- writes to dest
+consumer:  reads source -----+--------|         |------- reads dest from 0
+                              <-------- write pause ----->
+                              dest is empty during the
+                              flip, so 'earliest' = no
+                              duplicates and no loss
+```
+
+Step sequence (overlay on the existing scripts):
+
+1. `step1-start.sh` - start everything; producer writes to source.
+2. **Pause the producer** (`docker compose stop producer`). This is the
+   only behavioural change vs. the parallel flip.
+3. `step3-check-lag.sh` - wait for the consumer group on source to reach
+   lag 0.
+4. `step4-migrate-consumer.sh` - flip the consumer to dest. Dest is
+   empty, so `auto.offset.reset=earliest` reads from offset 0 of an
+   empty topic - a no-op until step 5.
+5. **Resume the producer on dest** (`PRODUCER_BOOTSTRAP=dest.producer-proxy:9192
+   docker compose up -d --force-recreate --no-deps producer`).
+
+Why this works:
+
+- The producer never writes to dest while the consumer is on source, so
+  there is no "produced-to-dest while consumer-on-source" window to
+  replay.
+- When the consumer flips to dest, the dest topic is empty (or only has
+  records produced after the flip, which the consumer is now reading
+  online). `auto.offset.reset=earliest` is safe.
+- No `__consumer_offsets` translation is needed - there is nothing to
+  translate, because the consumer never had an offset on dest before
+  the flip and there is nothing on dest before the flip.
+
+The trade is a write pause for the duration of step 3 (source drain
+time). At demo defaults that is ~5-15s. At 10k msg/sec with a 60s drain
+that is 60s of write back-pressure - usually acceptable, occasionally
+not. If write availability is non-negotiable, run the parallel flip and
+make the consumer idempotent (see [Hardening](#hardening-for-production)).
+
+## Why duplicates exist (parallel flip)
 
 Kroxylicious is a stateless TLS proxy. Flipping a client from
 `source.*-proxy` to `dest.*-proxy` opens a fresh connection to a
@@ -87,8 +145,9 @@ Pick one based on tolerance for duplicates vs. data loss:
 
 | Strategy | Duplicates | Loss | Cost |
 |---|---|---|---|
-| `auto.offset.reset=earliest` (this demo) | yes, sized as above | none | $0 |
-| `auto.offset.reset=latest` after step 4 | none from window | yes, the window | $0, ops risk |
+| Parallel flip + `auto.offset.reset=earliest` (this demo's default) | yes, sized as above | none | $0 |
+| Parallel flip + `auto.offset.reset=latest` after step 4 | none from window | yes, the window | $0, ops risk |
+| **Drain-first flip** (above) | **none** | **none** | **brief write pause** |
 | Idempotent consumer (dedup on event-id) | absorbed | none | app change |
 | External offset store keyed by event-id | absorbed | none | infra |
 | Sentinel handshake message | bounded by sentinel | none | small app change |
