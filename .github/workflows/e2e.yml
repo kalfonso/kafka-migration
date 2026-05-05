@@ -21,7 +21,7 @@ jobs:
         run: ./certs/generate-certs.sh
 
       - name: Step 1 - bring up the stack
-        run: ./step1-start.sh
+        run: ./scripts/step1-start.sh
 
       - name: Wait for producer to write to source
         run: |
@@ -37,22 +37,22 @@ jobs:
           exit 1
 
       - name: Topic parity check (source vs dest)
-        run: ./topic-parity.sh
+        run: ./scripts/topic-parity.sh
 
       - name: Step 2 - migrate producer to dest
-        run: ./step2-migrate-producer.sh
+        run: ./scripts/step2-migrate-producer.sh
 
       - name: Step 3 - wait for consumer to drain source (timeout 120s)
-        run: timeout 120 ./step3-check-lag.sh
+        run: timeout 120 ./scripts/step3-check-lag.sh
 
       - name: Step 4 - migrate consumer to dest
-        run: ./step4-migrate-consumer.sh
+        run: ./scripts/step4-migrate-consumer.sh
 
       - name: Let consumer settle on dest
         run: sleep 8
 
       - name: Step 5 - verify migration end-state
-        run: ./step5-verify.sh
+        run: ./scripts/step5-verify.sh
 
       - name: Diagnostics (on failure)
         if: failure()
@@ -74,4 +74,4 @@ jobs:
 
       - name: Tear down
         if: always()
-        run: ./stop.sh
+        run: ./scripts/stop.sh

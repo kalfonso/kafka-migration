@@ -9,8 +9,7 @@
 #
 
 set -euo pipefail
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-COMPOSE_FILE="$SCRIPT_DIR/docker-compose.yaml"
+COMPOSE_FILE="docker-compose.yaml"
 CONTAINER_CMD="${CONTAINER_CMD:-docker}"
 
 GREEN='\033[0;32m'

@@ -26,27 +26,27 @@ certs-clean:
 # Bring up everything (Kafka clusters, proxies, producer, consumer).
 # Generates certs first if missing.
 up:
-    CONTAINER_CMD={{container_cmd}} ./step1-start.sh
+    CONTAINER_CMD={{container_cmd}} ./scripts/step1-start.sh
 
 # Migrate the producer to the destination cluster.
 migrate-producer:
-    CONTAINER_CMD={{container_cmd}} ./step2-migrate-producer.sh
+    CONTAINER_CMD={{container_cmd}} ./scripts/step2-migrate-producer.sh
 
 # Wait for the consumer to drain the source cluster.
 check-lag:
-    CONTAINER_CMD={{container_cmd}} ./step3-check-lag.sh
+    CONTAINER_CMD={{container_cmd}} ./scripts/step3-check-lag.sh
 
 # Migrate the consumer to the destination cluster.
 migrate-consumer:
-    CONTAINER_CMD={{container_cmd}} ./step4-migrate-consumer.sh
+    CONTAINER_CMD={{container_cmd}} ./scripts/step4-migrate-consumer.sh
 
 # Verify the migration end-state.
 verify:
-    CONTAINER_CMD={{container_cmd}} ./step5-verify.sh
+    CONTAINER_CMD={{container_cmd}} ./scripts/step5-verify.sh
 
 # Tear everything down (containers + volumes).
 down:
-    CONTAINER_CMD={{container_cmd}} ./stop.sh
+    CONTAINER_CMD={{container_cmd}} ./scripts/stop.sh
 
 # Tail consumer logs.
 logs-consumer:
@@ -55,3 +55,7 @@ logs-consumer:
 # Tail producer logs.
 logs-producer:
     {{container_cmd}} compose logs -f producer
+
+# Show the dashboard
+dashboard:
+    CONTAINER_CMD={{container_cmd}} ./scripts/dashboard.sh

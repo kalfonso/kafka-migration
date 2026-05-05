@@ -4,11 +4,11 @@
 # with the same partition count, replication factor, and key topic-level
 # configs.
 #
-# Why: the demo's cutover sequence (step2 -> step3 -> step4) assumes the
+# Why: the demo's cut over sequence (step2 -> step3 -> step4) assumes the
 # producer can keep writing the same keys to the same partitions on the
-# dest cluster after cutover. If dest has a different partition count, the
+# dest cluster after cut over. If dest has a different partition count, the
 # key->partition mapping changes and per-key ordering breaks across the
-# cutover. Replication factor or retention drift quietly changes durability
+# cut over. Replication factor or retention drift quietly changes durability
 # and data lifetime guarantees. This script is the runtime parity check
 # that doctor.sh's static config check cannot do.
 #
@@ -52,7 +52,9 @@ checked_count=0
 broker_exec() {
   local container="$1"
   shift
-  "$CONTAINER_CMD" exec "$container" /opt/kafka/bin/"$@"
+  local cmd="$1"
+  shift
+  "$CONTAINER_CMD" exec "$container" /opt/kafka/bin/"$cmd" "$@"
 }
 
 list_user_topics() {
