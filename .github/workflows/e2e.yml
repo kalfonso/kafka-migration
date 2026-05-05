@@ -36,6 +36,9 @@ jobs:
           echo "::error::producer did not reach offset >= 5 on source within 120s"
           exit 1
 
+      - name: Topic parity check (source vs dest)
+        run: ./topic-parity.sh
+
       - name: Step 2 - migrate producer to dest
         run: ./step2-migrate-producer.sh
 
