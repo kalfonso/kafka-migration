@@ -11,7 +11,7 @@ import org.apache.kafka.common.serialization.StringSerializer;
 
 public final class Producer {
 
-    public static void main(String[] args) throws InterruptedException {
+    public static void main(String[] args) {
         String topic = envOr("TOPIC", "orders");
 
         Properties props = TlsProps.load();
@@ -22,6 +22,19 @@ public final class Producer {
         props.put(ProducerConfig.CLIENT_ID_CONFIG, "demo-producer");
 
         String[] keys = {"alice", "bob", "carol", "dave"};
+
+        // SIGTERM (e.g. step2's container recreate) must let the in-flight
+        // batch flush before the JVM exits, otherwise the duplicate window
+        // measured by audit-delivery.sh widens unnecessarily.
+        Thread mainThread = Thread.currentThread();
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            System.err.println("producer: shutdown signal, flushing...");
+            mainThread.interrupt();
+            try {
+                mainThread.join();
+            } catch (InterruptedException ignored) {
+            }
+        }));
 
         try (KafkaProducer<String, String> producer = new KafkaProducer<>(props)) {
             long i = 0;
@@ -36,9 +49,14 @@ public final class Producer {
                     }
                 });
                 i++;
-                Thread.sleep(Duration.ofSeconds(1));
+                try {
+                    Thread.sleep(Duration.ofSeconds(1));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
             }
         }
+        System.err.println("producer: clean exit");
     }
 
     private static String envOr(String key, String def) {
