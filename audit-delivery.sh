@@ -17,10 +17,14 @@
 #   0 = no gaps (no loss). Overlap is reported but not a failure.
 #   1 = gaps detected (records lost) or stack not running.
 #
-# Run AFTER step5-verify.sh has succeeded. The script reads from both
-# clusters' plaintext listener on 9092 (inside-container), independently of
-# the proxies - so it reflects what was actually persisted, not what the
-# proxy currently routes.
+# Run AFTER step5-verify.sh has succeeded AND after stopping the producer
+# (e.g. `docker compose stop producer`). The script reads each cluster
+# `--from-beginning` and relies on `--timeout-ms` to detect end-of-log; an
+# active producer would prevent the consumer from ever idling.
+#
+# Reads use the plaintext listener on 9092 (inside-container), independently
+# of the proxies - so the result reflects what was actually persisted, not
+# what the proxy currently routes.
 #
 
 set -uo pipefail
@@ -36,28 +40,13 @@ green() { printf '\033[32m%s\033[0m\n' "$*"; }
 amber() { printf '\033[33m%s\033[0m\n' "$*"; }
 cyan()  { printf '\033[36m%s\033[0m\n' "$*"; }
 
-end_count() {
-    local cluster="$1"
-    { "$CONTAINER_CMD" exec "$cluster" /opt/kafka/bin/kafka-get-offsets.sh \
-        --bootstrap-server localhost:9092 --topic "$TOPIC" --time -1 2>/dev/null \
-        || true; } | awk -F: '{ sum += $3 } END { print sum+0 }'
-}
-
 dump_cluster() {
     local cluster="$1"
     local out="$2"
-    local cnt
-    cnt=$(end_count "$cluster")
-    : > "$out"
-    if [ "$cnt" -eq 0 ]; then return; fi
-    # Bound by the snapshot count - the producer may still be writing to dest,
-    # so --timeout-ms alone never fires. --max-messages exits cleanly once N
-    # records have been read; --timeout-ms is just a safety net.
     "$CONTAINER_CMD" exec "$cluster" /opt/kafka/bin/kafka-console-consumer.sh \
         --bootstrap-server localhost:9092 \
         --topic "$TOPIC" \
         --from-beginning \
-        --max-messages "$cnt" \
         --timeout-ms "$TIMEOUT_MS" \
         --property print.key=true \
         --property key.separator=$'\t' \
