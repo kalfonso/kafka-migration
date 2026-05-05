@@ -112,6 +112,17 @@ Samples source/dest end-offsets over a few seconds and prints a
 pass/fail report: producer stopped writing to source, producer writing
 to dest, consumer drained source, consumer keeping up on dest.
 
+### Watch the migration live (optional)
+
+```bash
+./dashboard.sh
+```
+
+In a second terminal, refreshes every 2s and shows source/dest end-offsets,
+ingress rate per cluster, and consumer-group lag on each side. Run it
+before `step2` and you'll see the producer "jump" to dest, source rate
+drop to 0, and source lag drain to 0 before `step4` moves the consumer.
+
 ### Tear down
 
 ```bash
