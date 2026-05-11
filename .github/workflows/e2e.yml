@@ -54,6 +54,12 @@ jobs:
       - name: Step 5 - verify migration end-state
         run: ./scripts/step5-verify.sh
 
+      - name: Stop producer to freeze dest topic for audit
+        run: docker compose -f docker-compose.yaml stop producer
+
+      - name: Audit delivery (no loss, measure duplicate window)
+        run: ./audit-delivery.sh
+
       - name: Diagnostics (on failure)
         if: failure()
         run: |
